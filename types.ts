@@ -14,6 +14,7 @@ export interface Category {
 }
 
 export enum ViewMode {
+  HOME = 'HOME',
   UPLOAD = 'UPLOAD',
   FLIPBOOK = 'FLIPBOOK'
 }

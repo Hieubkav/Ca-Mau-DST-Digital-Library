@@ -44,7 +44,7 @@ const PageSheet = React.forwardRef<HTMLDivElement, any>((props, ref) => {
 PageSheet.displayName = 'PageSheet';
 
 // Buffer: số trang render trước/sau trang hiện tại
-const RENDER_BUFFER = 3;
+const RENDER_BUFFER = 4;
 
 export const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ file, onClose }) => {
   const [numPages, setNumPages] = useState<number>(0);
@@ -55,14 +55,29 @@ export const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ file, onClose })
   // View mode state
   const [viewMode, setViewMode] = useState<'single' | 'double'>('double');
   
+  // Actual PDF page dimensions from first page
+  const [pdfRatio, setPdfRatio] = useState<number | null>(null);
+  
   const flipBookRef = useRef<any>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   
   // Calculated base dimensions (before zoom)
   const [baseDim, setBaseDim] = useState({ width: 0, height: 0 });
 
-  function onDocumentLoadSuccess({ numPages }: { numPages: number }) {
+  async function onDocumentLoadSuccess({ numPages }: { numPages: number }) {
     setNumPages(numPages);
+    
+    // Get actual PDF dimensions from first page
+    try {
+      const pdfDoc = await pdfjs.getDocument(file).promise;
+      const firstPage = await pdfDoc.getPage(1);
+      const viewport = firstPage.getViewport({ scale: 1 });
+      const ratio = viewport.height / viewport.width;
+      setPdfRatio(ratio);
+    } catch (e) {
+      console.warn('Could not get PDF dimensions, using default A4 ratio');
+      setPdfRatio(1.414);
+    }
   }
 
   // Check if page should be rendered (lazy loading)
@@ -81,10 +96,10 @@ export const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ file, onClose })
     ? Math.round((loadedPages.size / Math.min(numPages, RENDER_BUFFER * 2 + 1)) * 100)
     : 0;
 
-  // Robust dimension calculation
+  // Robust dimension calculation - uses actual PDF ratio
   useEffect(() => {
     const calculateLayout = () => {
-      if (!containerRef.current) return;
+      if (!containerRef.current || pdfRatio === null) return;
       
       const containerW = containerRef.current.clientWidth;
       const containerH = containerRef.current.clientHeight;
@@ -94,8 +109,8 @@ export const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ file, onClose })
       const mode = isMobile ? 'single' : 'double';
       setViewMode(mode);
 
-      // Target aspect ratio (A4)
-      const RATIO = 1.414; 
+      // Use actual PDF ratio instead of fixed A4
+      const RATIO = pdfRatio;
       
       let targetWidth;
       let targetHeight;
@@ -114,7 +129,6 @@ export const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ file, onClose })
         }
       } else {
         // Double mode: 2 pages side by side
-        // Available width for ONE page is half the container
         const maxH = containerH - 60;
         const maxW = (containerW - 80) / 2;
         
@@ -129,7 +143,7 @@ export const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ file, onClose })
 
       // Sanity checks
       if (targetWidth < 200) targetWidth = 200;
-      if (targetHeight < 282) targetHeight = 282;
+      if (targetHeight < 200 * RATIO) targetHeight = 200 * RATIO;
 
       setBaseDim({
         width: Math.floor(targetWidth),
@@ -140,7 +154,7 @@ export const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ file, onClose })
     calculateLayout();
     window.addEventListener('resize', calculateLayout);
     return () => window.removeEventListener('resize', calculateLayout);
-  }, []);
+  }, [pdfRatio]);
 
   const nextFlip = useCallback(() => {
     if (flipBookRef.current) {
@@ -258,8 +272,8 @@ export const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ file, onClose })
             }
             className="flex justify-center items-center shadow-2xl rounded-sm"
           >
-             {/* Only render FlipBook when dimensions are ready */}
-             {numPages > 0 && baseDim.width > 0 && (
+             {/* Only render FlipBook when dimensions and PDF ratio are ready */}
+             {numPages > 0 && baseDim.width > 0 && pdfRatio !== null && (
                <HTMLFlipBook
                   key={`${viewMode}-${baseDim.width}`} // Remount on major changes
                   width={finalWidth}
@@ -294,7 +308,6 @@ export const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ file, onClose })
                           <Page 
                             pageNumber={index + 1} 
                             width={finalWidth}
-                            height={finalHeight}
                             onLoadSuccess={() => onPageLoadSuccess(index)}
                             loading={
                                <div className="w-full h-full flex items-center justify-center bg-white">

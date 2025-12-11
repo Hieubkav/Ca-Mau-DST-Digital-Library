@@ -4,9 +4,10 @@ import { Button } from './ui/Button';
 
 interface HeaderProps {
   toggleSidebar: () => void;
+  onGoHome?: () => void;
 }
 
-export const Header: React.FC<HeaderProps> = ({ toggleSidebar }) => {
+export const Header: React.FC<HeaderProps> = ({ toggleSidebar, onGoHome }) => {
   return (
     <header className="sticky top-0 z-40 w-full border-b border-slate-200 bg-white/80 backdrop-blur-md shadow-sm">
       <div className="flex h-16 items-center justify-between px-4 sm:px-6 lg:px-8">
@@ -15,7 +16,10 @@ export const Header: React.FC<HeaderProps> = ({ toggleSidebar }) => {
             <Menu className="h-5 w-5" />
           </Button>
           
-          <div className="flex flex-col">
+          <div 
+            className="flex flex-col cursor-pointer hover:opacity-80 transition-opacity"
+            onClick={onGoHome}
+          >
             <h1 className="text-xs font-bold tracking-widest text-primary-600 uppercase">
               Sở Khoa Học Và Công Nghệ Cà Mau
             </h1>

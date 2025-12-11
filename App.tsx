@@ -8,7 +8,7 @@ import { DocumentItem, ViewMode } from './types';
 
 const App: React.FC = () => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [viewMode, setViewMode] = useState<ViewMode>(ViewMode.UPLOAD);
+  const [viewMode, setViewMode] = useState<ViewMode>(ViewMode.HOME);
   const [currentFile, setCurrentFile] = useState<File | string | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
 
@@ -52,7 +52,12 @@ const App: React.FC = () => {
   };
 
   const handleCloseDocument = () => {
-    setViewMode(ViewMode.UPLOAD);
+    setViewMode(ViewMode.HOME);
+    setCurrentFile(null);
+  };
+
+  const handleGoHome = () => {
+    setViewMode(ViewMode.HOME);
     setCurrentFile(null);
   };
 
@@ -62,7 +67,7 @@ const App: React.FC = () => {
 
   return (
     <div className="flex h-screen w-full flex-col bg-slate-50 overflow-hidden font-sans">
-      <Header toggleSidebar={toggleSidebar} />
+      <Header toggleSidebar={toggleSidebar} onGoHome={handleGoHome} />
       
       <div className="flex flex-1 overflow-hidden relative">
         <Sidebar isOpen={sidebarOpen} onSelectDocument={handleSelectDocument} />
@@ -76,6 +81,14 @@ const App: React.FC = () => {
         )}
 
         <main className="flex-1 relative flex flex-col w-full h-full overflow-hidden bg-white shadow-xl lg:rounded-tl-2xl border-l border-slate-200/50 clip-content">
+          {viewMode === ViewMode.HOME && (
+            <div className="flex-1 flex items-center justify-center">
+              <div className="text-center text-slate-400">
+                <p className="text-lg">Chọn tài liệu từ thư viện bên trái để xem</p>
+              </div>
+            </div>
+          )}
+
           {viewMode === ViewMode.UPLOAD && (
              <Uploader 
                 onFileSelected={handleFileSelected} 
