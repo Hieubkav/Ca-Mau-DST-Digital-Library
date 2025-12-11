@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { Document, Page, pdfjs } from 'react-pdf';
 import HTMLFlipBook from 'react-pageflip';
 import { 
@@ -14,8 +14,9 @@ import {
 } from 'lucide-react';
 import { Button } from './ui/Button';
 
-// Set up worker
-pdfjs.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@3.11.174/build/pdf.worker.min.js`;
+// Local worker - bundled with Vite for faster loading
+import pdfWorker from 'pdfjs-dist/build/pdf.worker.min.js?url';
+pdfjs.GlobalWorkerOptions.workerSrc = pdfWorker;
 
 interface FlipbookViewerProps {
   file: File | string;
@@ -45,40 +46,45 @@ PageSheet.displayName = 'PageSheet';
 
 // Buffer: số trang render trước/sau trang hiện tại
 const RENDER_BUFFER = 4;
+// Default A4 ratio for skeleton
+const DEFAULT_RATIO = 1.414;
 
 export const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ file, onClose }) => {
   const [numPages, setNumPages] = useState<number>(0);
   const [pageNumber, setPageNumber] = useState(1);
   const [scale, setScale] = useState(1.0);
   const [loadedPages, setLoadedPages] = useState<Set<number>>(new Set());
+  const [isLoading, setIsLoading] = useState(true);
   
   // View mode state
   const [viewMode, setViewMode] = useState<'single' | 'double'>('double');
   
-  // Actual PDF page dimensions from first page
-  const [pdfRatio, setPdfRatio] = useState<number | null>(null);
+  // Actual PDF page dimensions from first page - start with default for instant skeleton
+  const [pdfRatio, setPdfRatio] = useState<number>(DEFAULT_RATIO);
   
   const flipBookRef = useRef<any>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const pdfDocRef = useRef<any>(null);
   
   // Calculated base dimensions (before zoom)
   const [baseDim, setBaseDim] = useState({ width: 0, height: 0 });
 
-  async function onDocumentLoadSuccess({ numPages }: { numPages: number }) {
-    setNumPages(numPages);
+  // Single PDF parse - reuse the document from react-pdf (no duplicate parsing!)
+  const onDocumentLoadSuccess = useCallback(async (pdf: any) => {
+    pdfDocRef.current = pdf;
+    setNumPages(pdf.numPages);
+    setIsLoading(false);
     
-    // Get actual PDF dimensions from first page
+    // Get actual PDF dimensions from the already-loaded document
     try {
-      const pdfDoc = await pdfjs.getDocument(file).promise;
-      const firstPage = await pdfDoc.getPage(1);
+      const firstPage = await pdf.getPage(1);
       const viewport = firstPage.getViewport({ scale: 1 });
       const ratio = viewport.height / viewport.width;
       setPdfRatio(ratio);
     } catch (e) {
       console.warn('Could not get PDF dimensions, using default A4 ratio');
-      setPdfRatio(1.414);
     }
-  }
+  }, []);
 
   // Check if page should be rendered (lazy loading)
   const shouldRenderPage = useCallback((pageIndex: number) => {
@@ -96,10 +102,10 @@ export const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ file, onClose })
     ? Math.round((loadedPages.size / Math.min(numPages, RENDER_BUFFER * 2 + 1)) * 100)
     : 0;
 
-  // Robust dimension calculation - uses actual PDF ratio
+  // Robust dimension calculation - uses actual PDF ratio (instant with default)
   useEffect(() => {
     const calculateLayout = () => {
-      if (!containerRef.current || pdfRatio === null) return;
+      if (!containerRef.current) return;
       
       const containerW = containerRef.current.clientWidth;
       const containerH = containerRef.current.clientHeight;
@@ -255,15 +261,28 @@ export const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ file, onClose })
 
         {/* Scrollable Area */}
         <div className="relative w-full h-full overflow-auto flex items-center justify-center py-8">
+           {/* Skeleton UI - shows immediately while PDF loads */}
+           {isLoading && baseDim.width > 0 && (
+             <div className="absolute inset-0 flex items-center justify-center z-10">
+               <div 
+                 className="bg-white rounded-sm shadow-2xl animate-pulse flex items-center justify-center"
+                 style={{ 
+                   width: viewMode === 'double' ? baseDim.width * 2 : baseDim.width, 
+                   height: baseDim.height 
+                 }}
+               >
+                 <div className="flex flex-col items-center gap-3">
+                   <Loader2 className="h-8 w-8 animate-spin text-primary-500" />
+                   <span className="text-sm font-medium text-slate-600">Đang tải sách...</span>
+                 </div>
+               </div>
+             </div>
+           )}
+           
            <Document
             file={file}
             onLoadSuccess={onDocumentLoadSuccess}
-            loading={
-              <div className="flex flex-col items-center gap-3 bg-white p-6 rounded-xl shadow-lg">
-                <Loader2 className="h-8 w-8 animate-spin text-primary-500" />
-                <span className="text-sm font-medium text-slate-600">Đang xử lý PDF...</span>
-              </div>
-            }
+            loading={null}
             error={
                 <div className="flex flex-col items-center justify-center p-8 bg-white rounded-xl shadow-lg border border-red-100">
                      <div className="text-red-500 font-bold mb-2">Lỗi đọc file</div>
@@ -272,8 +291,8 @@ export const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ file, onClose })
             }
             className="flex justify-center items-center shadow-2xl rounded-sm"
           >
-             {/* Only render FlipBook when dimensions and PDF ratio are ready */}
-             {numPages > 0 && baseDim.width > 0 && pdfRatio !== null && (
+             {/* Render FlipBook when dimensions are ready (skeleton shows immediately) */}
+             {numPages > 0 && baseDim.width > 0 && (
                <HTMLFlipBook
                   key={`${viewMode}-${baseDim.width}`} // Remount on major changes
                   width={finalWidth}
