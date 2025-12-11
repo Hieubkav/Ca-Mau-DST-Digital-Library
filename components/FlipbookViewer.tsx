@@ -217,7 +217,8 @@ export const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ file, pageImageU
            <span className="text-sm font-semibold text-slate-700 font-mono">
              {pageNumber} / {numPages}
            </span>
-           {loadProgress < 100 && numPages > 0 && (
+           {/* Only show progress for PDF rendering mode */}
+           {!hasPrerenderedImages && loadProgress < 100 && numPages > 0 && (
              <div className="flex items-center gap-2 text-xs text-slate-500">
                <div className="w-16 h-1.5 bg-slate-200 rounded-full overflow-hidden">
                  <div 
