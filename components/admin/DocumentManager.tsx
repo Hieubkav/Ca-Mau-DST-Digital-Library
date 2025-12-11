@@ -9,7 +9,7 @@ import { pdfjs } from 'react-pdf';
 import pdfWorker from 'pdfjs-dist/build/pdf.worker.min.js?url';
 pdfjs.GlobalWorkerOptions.workerSrc = pdfWorker;
 
-// Convert PDF page to image blob
+// Convert PDF page to WebP image blob (smaller file size than JPEG)
 async function renderPageToBlob(pdfDoc: any, pageNum: number, scale = 1.5): Promise<Blob> {
   const page = await pdfDoc.getPage(pageNum);
   const viewport = page.getViewport({ scale });
@@ -22,7 +22,7 @@ async function renderPageToBlob(pdfDoc: any, pageNum: number, scale = 1.5): Prom
   await page.render({ canvasContext: ctx, viewport }).promise;
   
   return new Promise((resolve) => {
-    canvas.toBlob((blob) => resolve(blob!), 'image/jpeg', 0.85);
+    canvas.toBlob((blob) => resolve(blob!), 'image/webp', 0.85);
   });
 }
 
@@ -96,7 +96,7 @@ export const DocumentManager: React.FC = () => {
         const imgUploadUrl = await generateUploadUrl();
         const imgResult = await fetch(imgUploadUrl, {
           method: 'POST',
-          headers: { 'Content-Type': 'image/jpeg' },
+          headers: { 'Content-Type': 'image/webp' },
           body: blob,
         });
 
