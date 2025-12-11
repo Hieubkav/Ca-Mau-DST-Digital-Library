@@ -4,6 +4,7 @@ export interface DocumentItem {
   category: string;
   date: string;
   url: string; // URL từ Firebase Storage
+  pageImageUrls?: (string | null)[]; // Pre-rendered page images
   isNew?: boolean;
 }
 

@@ -12,6 +12,7 @@ export const saveDocument = mutation({
     title: v.string(),
     categoryId: v.id("categories"),
     storageId: v.id("_storage"),
+    pageImages: v.optional(v.array(v.id("_storage"))),
   },
   handler: async (ctx, args) => {
     // Get max order
@@ -23,6 +24,7 @@ export const saveDocument = mutation({
       categoryId: args.categoryId,
       date: new Date().toISOString().split("T")[0],
       storageId: args.storageId,
+      pageImages: args.pageImages,
       active: true,
       order: maxOrder + 1,
       createdAt: Date.now(),
@@ -42,9 +44,14 @@ export const listDocuments = query({
     const docsWithDetails = await Promise.all(
       documents.map(async (doc) => {
         const category = await ctx.db.get(doc.categoryId);
+        // Get page image URLs if available
+        const pageImageUrls = doc.pageImages 
+          ? await Promise.all(doc.pageImages.map(id => ctx.storage.getUrl(id)))
+          : undefined;
         return {
           ...doc,
           url: await ctx.storage.getUrl(doc.storageId),
+          pageImageUrls,
           category: category?.name || "Không xác định",
         };
       })
@@ -68,9 +75,14 @@ export const listActiveDocuments = query({
         const category = await ctx.db.get(doc.categoryId);
         // Only include if category is also active
         if (!category?.active) return null;
+        // Get page image URLs if available
+        const pageImageUrls = doc.pageImages 
+          ? await Promise.all(doc.pageImages.map(id => ctx.storage.getUrl(id)))
+          : undefined;
         return {
           ...doc,
           url: await ctx.storage.getUrl(doc.storageId),
+          pageImageUrls,
           category: category.name,
         };
       })

@@ -20,6 +20,7 @@ pdfjs.GlobalWorkerOptions.workerSrc = pdfWorker;
 
 interface FlipbookViewerProps {
   file: File | string;
+  pageImageUrls?: (string | null)[]; // Pre-rendered page images for fast loading
   onClose: () => void;
 }
 
@@ -49,12 +50,15 @@ const RENDER_BUFFER = 4;
 // Default A4 ratio for skeleton
 const DEFAULT_RATIO = 1.414;
 
-export const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ file, onClose }) => {
+export const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ file, pageImageUrls, onClose }) => {
   const [numPages, setNumPages] = useState<number>(0);
   const [pageNumber, setPageNumber] = useState(1);
   const [scale, setScale] = useState(1.0);
   const [loadedPages, setLoadedPages] = useState<Set<number>>(new Set());
   const [isLoading, setIsLoading] = useState(true);
+  
+  // Check if we have pre-rendered images
+  const hasPrerenderedImages = pageImageUrls && pageImageUrls.length > 0 && pageImageUrls.some(url => url);
   
   // View mode state
   const [viewMode, setViewMode] = useState<'single' | 'double'>('double');
@@ -68,6 +72,25 @@ export const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ file, onClose })
   
   // Calculated base dimensions (before zoom)
   const [baseDim, setBaseDim] = useState({ width: 0, height: 0 });
+  
+  // For pre-rendered images: load first image to get ratio and set numPages immediately
+  useEffect(() => {
+    if (hasPrerenderedImages && pageImageUrls) {
+      setNumPages(pageImageUrls.length);
+      setIsLoading(false);
+      
+      // Load first image to get actual ratio
+      const firstUrl = pageImageUrls.find(url => url);
+      if (firstUrl) {
+        const img = new Image();
+        img.onload = () => {
+          const ratio = img.height / img.width;
+          setPdfRatio(ratio);
+        };
+        img.src = firstUrl;
+      }
+    }
+  }, [hasPrerenderedImages, pageImageUrls]);
 
   // Single PDF parse - reuse the document from react-pdf (no duplicate parsing!)
   const onDocumentLoadSuccess = useCallback(async (pdf: any) => {
@@ -261,7 +284,7 @@ export const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ file, onClose })
 
         {/* Scrollable Area */}
         <div className="relative w-full h-full overflow-auto flex items-center justify-center py-8">
-           {/* Skeleton UI - shows immediately while PDF loads */}
+           {/* Skeleton UI - shows immediately while loading */}
            {isLoading && baseDim.width > 0 && (
              <div className="absolute inset-0 flex items-center justify-center z-10">
                <div 
@@ -273,37 +296,26 @@ export const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ file, onClose })
                >
                  <div className="flex flex-col items-center gap-3">
                    <Loader2 className="h-8 w-8 animate-spin text-primary-500" />
-                   <span className="text-sm font-medium text-slate-600">Đang tải sách...</span>
+                   <span className="text-sm font-medium text-slate-600">Đang tải...</span>
                  </div>
                </div>
              </div>
            )}
            
-           <Document
-            file={file}
-            onLoadSuccess={onDocumentLoadSuccess}
-            loading={null}
-            error={
-                <div className="flex flex-col items-center justify-center p-8 bg-white rounded-xl shadow-lg border border-red-100">
-                     <div className="text-red-500 font-bold mb-2">Lỗi đọc file</div>
-                     <p className="text-sm text-slate-500">File không hợp lệ hoặc bị hỏng.</p>
-                </div>
-            }
-            className="flex justify-center items-center shadow-2xl rounded-sm"
-          >
-             {/* Render FlipBook when dimensions are ready (skeleton shows immediately) */}
-             {numPages > 0 && baseDim.width > 0 && (
+           {/* MODE 1: Pre-rendered images (FAST) */}
+           {hasPrerenderedImages && numPages > 0 && baseDim.width > 0 && (
+             <div className="flex justify-center items-center shadow-2xl rounded-sm">
                <HTMLFlipBook
-                  key={`${viewMode}-${baseDim.width}`} // Remount on major changes
+                  key={`img-${viewMode}-${baseDim.width}`}
                   width={finalWidth}
                   height={finalHeight}
-                  size="fixed" // STRICT MODE: Forces exact dimensions
+                  size="fixed"
                   minWidth={200}
                   maxWidth={1000}
                   minHeight={300}
                   maxHeight={1500}
                   maxShadowOpacity={0.2}
-                  showCover={false} // Double mode starts: Left=Page1, Right=Page2
+                  showCover={false}
                   mobileScrollSupport={true}
                   ref={flipBookRef}
                   onFlip={onFlip}
@@ -314,42 +326,110 @@ export const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ file, onClose })
                   flippingTime={800}
                   usePortrait={viewMode === 'single'}
                   startZIndex={0}
-                  autoSize={false} // Disable autoSize to prevent layout trashing
+                  autoSize={false}
                   clickEventForward={true}
                   useMouseEvents={true}
                   swipeDistance={30}
                   showPageCorners={true}
                   disableFlipByClick={false}
                >
-                 {Array.from(new Array(numPages), (el, index) => (
+                 {pageImageUrls!.map((url, index) => (
                     <PageSheet key={index} number={index + 1}>
-                        {shouldRenderPage(index) ? (
-                          <Page 
-                            pageNumber={index + 1} 
-                            width={finalWidth}
-                            onLoadSuccess={() => onPageLoadSuccess(index)}
-                            loading={
-                               <div className="w-full h-full flex items-center justify-center bg-white">
-                                  <Loader2 className="h-6 w-6 animate-spin text-slate-300" />
-                               </div>
-                            }
-                            renderTextLayer={false} 
-                            renderAnnotationLayer={false}
-                            className="page-pdf-render"
-                          />
-                        ) : (
-                          <div 
-                            className="w-full h-full flex items-center justify-center bg-slate-50"
-                            style={{ width: finalWidth, height: finalHeight }}
-                          >
-                            <div className="text-slate-300 text-sm">Trang {index + 1}</div>
-                          </div>
-                        )}
+                      {url ? (
+                        <img 
+                          src={url} 
+                          alt={`Trang ${index + 1}`}
+                          className="w-full h-full object-contain bg-white"
+                          style={{ width: finalWidth, height: finalHeight }}
+                          loading={index < 4 ? "eager" : "lazy"}
+                        />
+                      ) : (
+                        <div 
+                          className="w-full h-full flex items-center justify-center bg-slate-50"
+                          style={{ width: finalWidth, height: finalHeight }}
+                        >
+                          <div className="text-slate-300 text-sm">Trang {index + 1}</div>
+                        </div>
+                      )}
                     </PageSheet>
                  ))}
                </HTMLFlipBook>
-             )}
-          </Document>
+             </div>
+           )}
+           
+           {/* MODE 2: PDF rendering (fallback for old documents or local files) */}
+           {!hasPrerenderedImages && (
+             <Document
+              file={file}
+              onLoadSuccess={onDocumentLoadSuccess}
+              loading={null}
+              error={
+                  <div className="flex flex-col items-center justify-center p-8 bg-white rounded-xl shadow-lg border border-red-100">
+                       <div className="text-red-500 font-bold mb-2">Lỗi đọc file</div>
+                       <p className="text-sm text-slate-500">File không hợp lệ hoặc bị hỏng.</p>
+                  </div>
+              }
+              className="flex justify-center items-center shadow-2xl rounded-sm"
+            >
+               {numPages > 0 && baseDim.width > 0 && (
+                 <HTMLFlipBook
+                    key={`pdf-${viewMode}-${baseDim.width}`}
+                    width={finalWidth}
+                    height={finalHeight}
+                    size="fixed"
+                    minWidth={200}
+                    maxWidth={1000}
+                    minHeight={300}
+                    maxHeight={1500}
+                    maxShadowOpacity={0.2}
+                    showCover={false}
+                    mobileScrollSupport={true}
+                    ref={flipBookRef}
+                    onFlip={onFlip}
+                    className={`flip-book ${viewMode === 'double' ? 'mx-auto' : ''}`}
+                    style={{ margin: '0 auto' }}
+                    startPage={0}
+                    drawShadow={true}
+                    flippingTime={800}
+                    usePortrait={viewMode === 'single'}
+                    startZIndex={0}
+                    autoSize={false}
+                    clickEventForward={true}
+                    useMouseEvents={true}
+                    swipeDistance={30}
+                    showPageCorners={true}
+                    disableFlipByClick={false}
+                 >
+                   {Array.from(new Array(numPages), (el, index) => (
+                      <PageSheet key={index} number={index + 1}>
+                          {shouldRenderPage(index) ? (
+                            <Page 
+                              pageNumber={index + 1} 
+                              width={finalWidth}
+                              onLoadSuccess={() => onPageLoadSuccess(index)}
+                              loading={
+                                 <div className="w-full h-full flex items-center justify-center bg-white">
+                                    <Loader2 className="h-6 w-6 animate-spin text-slate-300" />
+                                 </div>
+                              }
+                              renderTextLayer={false} 
+                              renderAnnotationLayer={false}
+                              className="page-pdf-render"
+                            />
+                          ) : (
+                            <div 
+                              className="w-full h-full flex items-center justify-center bg-slate-50"
+                              style={{ width: finalWidth, height: finalHeight }}
+                            >
+                              <div className="text-slate-300 text-sm">Trang {index + 1}</div>
+                            </div>
+                          )}
+                      </PageSheet>
+                   ))}
+                 </HTMLFlipBook>
+               )}
+            </Document>
+           )}
         </div>
       </div>
     </div>

@@ -32,6 +32,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onSelectDocument }) =>
         category: d.category,
         date: d.date,
         url: d.url || "",
+        pageImageUrls: d.pageImageUrls,
       };
       if (!grouped[d.category]) grouped[d.category] = [];
       grouped[d.category].push(doc);

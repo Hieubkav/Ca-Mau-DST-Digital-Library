@@ -1,13 +1,35 @@
 import React, { useRef, useState, useEffect } from 'react';
-import { Upload, FileText, CheckCircle2, AlertCircle } from 'lucide-react';
+import { Upload, FileText, CheckCircle2, AlertCircle, Loader2 } from 'lucide-react';
 import { Button } from './ui/Button';
 import { useMutation, useQuery } from 'convex/react';
 import { api } from '../convex/_generated/api';
 import { Id } from '../convex/_generated/dataModel';
+import { pdfjs } from 'react-pdf';
+
+// Use local worker
+import pdfWorker from 'pdfjs-dist/build/pdf.worker.min.js?url';
+pdfjs.GlobalWorkerOptions.workerSrc = pdfWorker;
 
 interface UploaderProps {
   onFileSelected: (file: File) => void;
   onUploadSuccess: () => void;
+}
+
+// Convert PDF page to image blob
+async function renderPageToBlob(pdfDoc: any, pageNum: number, scale = 1.5): Promise<Blob> {
+  const page = await pdfDoc.getPage(pageNum);
+  const viewport = page.getViewport({ scale });
+  
+  const canvas = document.createElement('canvas');
+  canvas.width = viewport.width;
+  canvas.height = viewport.height;
+  const ctx = canvas.getContext('2d')!;
+  
+  await page.render({ canvasContext: ctx, viewport }).promise;
+  
+  return new Promise((resolve) => {
+    canvas.toBlob((blob) => resolve(blob!), 'image/jpeg', 0.85);
+  });
 }
 
 export const Uploader: React.FC<UploaderProps> = ({ onFileSelected, onUploadSuccess }) => {
@@ -15,6 +37,7 @@ export const Uploader: React.FC<UploaderProps> = ({ onFileSelected, onUploadSucc
   const [file, setFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
   const [progress, setProgress] = useState(0);
+  const [progressText, setProgressText] = useState("");
   const [selectedCategoryId, setSelectedCategoryId] = useState<string>("");
   const [docName, setDocName] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -50,7 +73,7 @@ export const Uploader: React.FC<UploaderProps> = ({ onFileSelected, onUploadSucc
     }
   };
 
-  // Upload Logic: Convex Storage + Database
+  // Upload Logic: Convex Storage + Database with pre-rendered images
   const handleUpload = async () => {
     if (!file || !selectedCategoryId) {
       alert("Vui lòng chọn danh mục trước khi tải lên");
@@ -59,32 +82,62 @@ export const Uploader: React.FC<UploaderProps> = ({ onFileSelected, onUploadSucc
 
     setUploading(true);
     setProgress(0);
+    setProgressText("Đang tải PDF...");
     
     try {
-        // 1. Get upload URL from Convex
+        // 1. Upload original PDF file
         const uploadUrl = await generateUploadUrl();
-        setProgress(20);
-        
-        // 2. Upload file to Convex Storage
         const result = await fetch(uploadUrl, {
             method: "POST",
             headers: { "Content-Type": file.type },
             body: file,
         });
         
-        if (!result.ok) throw new Error("Upload thất bại");
-        
+        if (!result.ok) throw new Error("Upload PDF thất bại");
         const { storageId } = await result.json();
-        setProgress(80);
+        setProgress(10);
         
-        // 3. Save document metadata
+        // 2. Load PDF and convert pages to images
+        setProgressText("Đang xử lý trang...");
+        const arrayBuffer = await file.arrayBuffer();
+        const pdfDoc = await pdfjs.getDocument({ data: arrayBuffer }).promise;
+        const numPages = pdfDoc.numPages;
+        
+        const pageImageIds: Id<"_storage">[] = [];
+        
+        for (let i = 1; i <= numPages; i++) {
+            setProgressText(`Đang xử lý trang ${i}/${numPages}...`);
+            
+            // Render page to image
+            const blob = await renderPageToBlob(pdfDoc, i);
+            
+            // Upload image
+            const imgUploadUrl = await generateUploadUrl();
+            const imgResult = await fetch(imgUploadUrl, {
+                method: "POST",
+                headers: { "Content-Type": "image/jpeg" },
+                body: blob,
+            });
+            
+            if (!imgResult.ok) throw new Error(`Upload trang ${i} thất bại`);
+            const { storageId: imgStorageId } = await imgResult.json();
+            pageImageIds.push(imgStorageId);
+            
+            // Update progress (10-90%)
+            setProgress(10 + Math.round((i / numPages) * 80));
+        }
+        
+        // 3. Save document metadata with page images
+        setProgressText("Đang lưu...");
         await saveDocument({
             title: docName || file.name.replace('.pdf', ''),
             categoryId: selectedCategoryId as Id<"categories">,
             storageId,
+            pageImages: pageImageIds,
         });
         
         setProgress(100);
+        setProgressText("Hoàn tất!");
         setUploading(false);
         onUploadSuccess();
         alert("Đã tải lên thành công!");
@@ -95,6 +148,7 @@ export const Uploader: React.FC<UploaderProps> = ({ onFileSelected, onUploadSucc
         console.error("Upload failed", error);
         alert("Lỗi: " + (error.message || "Upload thất bại"));
         setUploading(false);
+        setProgressText("");
     }
   };
 
@@ -197,7 +251,10 @@ export const Uploader: React.FC<UploaderProps> = ({ onFileSelected, onUploadSucc
                 {uploading ? (
                      <div className="mt-6 space-y-2">
                         <div className="flex justify-between text-xs font-medium text-slate-600">
-                            <span>Đang tải lên server...</span>
+                            <span className="flex items-center gap-2">
+                              <Loader2 className="h-3 w-3 animate-spin" />
+                              {progressText || "Đang xử lý..."}
+                            </span>
                             <span>{Math.round(progress)}%</span>
                         </div>
                         <div className="h-2 w-full bg-slate-100 rounded-full overflow-hidden">
@@ -206,6 +263,7 @@ export const Uploader: React.FC<UploaderProps> = ({ onFileSelected, onUploadSucc
                                 style={{ width: `${progress}%` }}
                             />
                         </div>
+                        <p className="text-xs text-slate-400 mt-2">Việc này có thể mất vài phút với file lớn</p>
                      </div>
                 ) : (
                     <div className="flex gap-3 mt-6">

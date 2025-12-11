@@ -17,6 +17,8 @@ export default defineSchema({
     categoryId: v.id("categories"),
     date: v.string(),
     storageId: v.id("_storage"),
+    // Pre-rendered page images for fast loading
+    pageImages: v.optional(v.array(v.id("_storage"))),
     active: v.boolean(),
     order: v.number(),
     createdAt: v.number(),

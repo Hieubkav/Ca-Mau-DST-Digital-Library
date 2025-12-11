@@ -10,6 +10,7 @@ const App: React.FC = () => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [viewMode, setViewMode] = useState<ViewMode>(ViewMode.HOME);
   const [currentFile, setCurrentFile] = useState<File | string | null>(null);
+  const [currentPageImages, setCurrentPageImages] = useState<(string | null)[] | undefined>(undefined);
   const [isAdmin, setIsAdmin] = useState(false);
 
   useEffect(() => {
@@ -31,6 +32,7 @@ const App: React.FC = () => {
   // Handle local file preview or Upload quick view
   const handleFileSelected = (file: File) => {
     setCurrentFile(file);
+    setCurrentPageImages(undefined); // Local files don't have pre-rendered images
     setViewMode(ViewMode.FLIPBOOK);
   };
 
@@ -43,6 +45,7 @@ const App: React.FC = () => {
   const handleSelectDocument = (doc: DocumentItem) => {
     if (doc.url) {
         setCurrentFile(doc.url); // Pass URL string to Flipbook
+        setCurrentPageImages(doc.pageImageUrls); // Pass pre-rendered images if available
         setViewMode(ViewMode.FLIPBOOK);
         // Close sidebar on mobile
         if (window.innerWidth < 1024) setSidebarOpen(false);
@@ -54,11 +57,13 @@ const App: React.FC = () => {
   const handleCloseDocument = () => {
     setViewMode(ViewMode.HOME);
     setCurrentFile(null);
+    setCurrentPageImages(undefined);
   };
 
   const handleGoHome = () => {
     setViewMode(ViewMode.HOME);
     setCurrentFile(null);
+    setCurrentPageImages(undefined);
   };
 
   if (isAdmin) {
@@ -98,7 +103,11 @@ const App: React.FC = () => {
 
           {viewMode === ViewMode.FLIPBOOK && currentFile && (
             <div className="h-full w-full relative animate-in zoom-in-95 duration-300">
-               <FlipbookViewer file={currentFile} onClose={handleCloseDocument} />
+               <FlipbookViewer 
+                 file={currentFile} 
+                 pageImageUrls={currentPageImages}
+                 onClose={handleCloseDocument} 
+               />
             </div>
           )}
         </main>
