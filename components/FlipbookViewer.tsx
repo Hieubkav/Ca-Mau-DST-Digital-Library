@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { Button } from './ui/Button';
 import { useImagePreloader } from './hooks/useImagePreloader';
+import { usePageFlipSound } from './hooks/usePageFlipSound';
 
 // Local worker - bundled with Vite for faster loading
 import pdfWorker from 'pdfjs-dist/build/pdf.worker.min.js?url';
@@ -120,6 +121,9 @@ export const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ file, pageImageU
   
   // Image preloader hook for 4-tier loading strategy
   const { preloadForViewer } = useImagePreloader();
+  
+  // Page flip sound effect (soft & quick)
+  const { playFlipSound } = usePageFlipSound({ volume: 0.2, enabled: true });
   
   // Check if we have pre-rendered images
   const hasPrerenderedImages = pageImageUrls && pageImageUrls.length > 0 && pageImageUrls.some(url => url);
@@ -296,7 +300,8 @@ export const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ file, pageImageU
 
   const onFlip = useCallback((e: any) => {
     setPageNumber(e.data + 1);
-  }, []);
+    playFlipSound();
+  }, [playFlipSound]);
 
   // Actual dimensions passed to components (base * zoom)
   const finalWidth = baseDim.width * scale;

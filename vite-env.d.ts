@@ -6,6 +6,12 @@ declare module 'pdfjs-dist/build/pdf.worker.min.js?url' {
   export default url;
 }
 
+// Audio files
+declare module '*.mp3' {
+  const src: string;
+  export default src;
+}
+
 interface ImportMetaEnv {
   readonly VITE_CONVEX_URL: string;
 }
