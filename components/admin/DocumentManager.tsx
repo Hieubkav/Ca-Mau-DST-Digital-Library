@@ -3,6 +3,28 @@ import { Plus, Pencil, Trash2, X, Check, Loader2, Upload, FileText, Eye, EyeOff,
 import { useQuery, useMutation } from 'convex/react';
 import { api } from '../../convex/_generated/api';
 import { Id } from '../../convex/_generated/dataModel';
+import { pdfjs } from 'react-pdf';
+
+// Use local worker
+import pdfWorker from 'pdfjs-dist/build/pdf.worker.min.js?url';
+pdfjs.GlobalWorkerOptions.workerSrc = pdfWorker;
+
+// Convert PDF page to image blob
+async function renderPageToBlob(pdfDoc: any, pageNum: number, scale = 1.5): Promise<Blob> {
+  const page = await pdfDoc.getPage(pageNum);
+  const viewport = page.getViewport({ scale });
+  
+  const canvas = document.createElement('canvas');
+  canvas.width = viewport.width;
+  canvas.height = viewport.height;
+  const ctx = canvas.getContext('2d')!;
+  
+  await page.render({ canvasContext: ctx, viewport }).promise;
+  
+  return new Promise((resolve) => {
+    canvas.toBlob((blob) => resolve(blob!), 'image/jpeg', 0.85);
+  });
+}
 
 export const DocumentManager: React.FC = () => {
   const documents = useQuery(api.documents.listDocuments);
@@ -20,6 +42,7 @@ export const DocumentManager: React.FC = () => {
   const [file, setFile] = useState<File | null>(null);
   const [loading, setLoading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
+  const [progressText, setProgressText] = useState("");
   const [draggedId, setDraggedId] = useState<Id<"documents"> | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -40,29 +63,62 @@ export const DocumentManager: React.FC = () => {
     }
     setLoading(true);
     setUploadProgress(0);
+    setProgressText("Đang tải PDF...");
 
     try {
+      // 1. Upload original PDF
       const uploadUrl = await generateUploadUrl();
-      setUploadProgress(30);
-
       const result = await fetch(uploadUrl, {
         method: 'POST',
         headers: { 'Content-Type': file.type },
         body: file,
       });
 
-      if (!result.ok) throw new Error('Upload thất bại');
-
+      if (!result.ok) throw new Error('Upload PDF thất bại');
       const { storageId } = await result.json();
-      setUploadProgress(70);
+      setUploadProgress(10);
 
+      // 2. Convert PDF pages to images
+      setProgressText("Đang xử lý trang...");
+      const arrayBuffer = await file.arrayBuffer();
+      const pdfDoc = await pdfjs.getDocument({ data: arrayBuffer }).promise;
+      const numPages = pdfDoc.numPages;
+
+      const pageImageIds: Id<"_storage">[] = [];
+
+      for (let i = 1; i <= numPages; i++) {
+        setProgressText(`Đang xử lý trang ${i}/${numPages}...`);
+
+        // Render page to image
+        const blob = await renderPageToBlob(pdfDoc, i);
+
+        // Upload image
+        const imgUploadUrl = await generateUploadUrl();
+        const imgResult = await fetch(imgUploadUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'image/jpeg' },
+          body: blob,
+        });
+
+        if (!imgResult.ok) throw new Error(`Upload trang ${i} thất bại`);
+        const { storageId: imgStorageId } = await imgResult.json();
+        pageImageIds.push(imgStorageId);
+
+        // Update progress (10-90%)
+        setUploadProgress(10 + Math.round((i / numPages) * 80));
+      }
+
+      // 3. Save document with page images
+      setProgressText("Đang lưu...");
       await saveDocument({
         title: formData.title,
         categoryId: formData.categoryId as Id<"categories">,
         storageId,
+        pageImages: pageImageIds,
       });
 
       setUploadProgress(100);
+      setProgressText("Hoàn tất!");
       setFormData({ title: '', categoryId: '' });
       setFile(null);
       setIsAdding(false);
@@ -71,6 +127,7 @@ export const DocumentManager: React.FC = () => {
     }
     setLoading(false);
     setUploadProgress(0);
+    setProgressText("");
   };
 
   const handleUpdate = async () => {
@@ -222,7 +279,10 @@ export const DocumentManager: React.FC = () => {
             {loading && uploadProgress > 0 && (
               <div className="space-y-1">
                 <div className="flex justify-between text-xs text-slate-600">
-                  <span>Đang tải lên...</span>
+                  <span className="flex items-center gap-2">
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                    {progressText || "Đang xử lý..."}
+                  </span>
                   <span>{uploadProgress}%</span>
                 </div>
                 <div className="h-2 bg-slate-200 rounded-full overflow-hidden">
@@ -231,6 +291,7 @@ export const DocumentManager: React.FC = () => {
                     style={{ width: `${uploadProgress}%` }}
                   />
                 </div>
+                <p className="text-xs text-slate-400">Việc này có thể mất vài phút với file lớn</p>
               </div>
             )}
 

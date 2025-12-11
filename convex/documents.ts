@@ -151,13 +151,20 @@ export const reorder = mutation({
   },
 });
 
-// Delete a document
+// Delete a document (including PDF and all page images)
 export const deleteDocument = mutation({
   args: { id: v.id("documents") },
   handler: async (ctx, args) => {
     const doc = await ctx.db.get(args.id);
     if (doc) {
+      // Delete original PDF
       await ctx.storage.delete(doc.storageId);
+      
+      // Delete all page images if exist
+      if (doc.pageImages && doc.pageImages.length > 0) {
+        await Promise.all(doc.pageImages.map(id => ctx.storage.delete(id)));
+      }
+      
       await ctx.db.delete(args.id);
     }
   },
