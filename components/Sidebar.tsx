@@ -7,6 +7,7 @@ import {
 import { Category, DocumentItem } from '../types';
 import { useQuery } from 'convex/react';
 import { api } from '../convex/_generated/api';
+import { useImagePreloader } from './hooks/useImagePreloader';
 
 interface SidebarProps {
   isOpen: boolean;
@@ -15,10 +16,18 @@ interface SidebarProps {
 
 export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onSelectDocument }) => {
   const [expandedCats, setExpandedCats] = useState<string[]>([]);
+  const { preloadFirstPages, preload } = useImagePreloader();
   
   // Fetch only active documents (realtime)
   const documents = useQuery(api.documents.listActiveDocuments);
   const loading = documents === undefined;
+
+  // TIER 1: Preload trang đầu của TẤT CẢ tài liệu ngay khi load xong danh sách
+  useEffect(() => {
+    if (documents && documents.length > 0) {
+      preloadFirstPages(documents);
+    }
+  }, [documents, preloadFirstPages]);
 
   // Group documents by category
   const categories = useMemo(() => {
@@ -56,6 +65,16 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onSelectDocument }) =>
     setExpandedCats(prev => 
       prev.includes(id) ? prev.filter(c => c !== id) : [...prev, id]
     );
+  };
+
+  // TIER 2: Prefetch thêm trang 2-4 khi hover vào document
+  const handleDocumentHover = (doc: DocumentItem) => {
+    if (doc.pageImageUrls && doc.pageImageUrls.length > 1) {
+      const nextPages = doc.pageImageUrls.slice(1, 4).filter((url): url is string => !!url);
+      if (nextPages.length > 0) {
+        preload(nextPages, { priority: 'high' });
+      }
+    }
   };
 
   return (
@@ -113,6 +132,8 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onSelectDocument }) =>
                             <button
                             key={doc.id}
                             onClick={() => onSelectDocument(doc)}
+                            onMouseEnter={() => handleDocumentHover(doc)}
+                            onFocus={() => handleDocumentHover(doc)}
                             className="flex w-full items-start px-4 py-2.5 text-left text-sm text-slate-600 hover:bg-slate-50 hover:text-primary-700 group transition-colors border-l-2 border-transparent hover:border-primary-500"
                             >
                             <span className="font-medium line-clamp-1 w-full group-hover:translate-x-1 transition-transform">{doc.title}</span>

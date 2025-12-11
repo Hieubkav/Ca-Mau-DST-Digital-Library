@@ -13,6 +13,7 @@ import {
   X
 } from 'lucide-react';
 import { Button } from './ui/Button';
+import { useImagePreloader } from './hooks/useImagePreloader';
 
 // Local worker - bundled with Vite for faster loading
 import pdfWorker from 'pdfjs-dist/build/pdf.worker.min.js?url';
@@ -45,10 +46,70 @@ const PageSheet = React.forwardRef<HTMLDivElement, any>((props, ref) => {
 });
 PageSheet.displayName = 'PageSheet';
 
-// Buffer: số trang render trước/sau trang hiện tại
-const RENDER_BUFFER = 4;
+// Số trang load trước khi lật
+const PRELOAD_AHEAD = 2;
 // Default A4 ratio for skeleton
 const DEFAULT_RATIO = 1.414;
+
+// Skeleton component cho trang đang load
+const PageSkeleton: React.FC<{ pageNumber: number }> = ({ pageNumber }) => (
+  <div className="w-full h-full bg-white flex flex-col items-center justify-center gap-3 animate-pulse">
+    {/* Skeleton lines */}
+    <div className="w-3/4 space-y-3">
+      <div className="h-3 bg-slate-200 rounded-full w-full"></div>
+      <div className="h-3 bg-slate-200 rounded-full w-5/6"></div>
+      <div className="h-3 bg-slate-200 rounded-full w-4/6"></div>
+      <div className="h-3 bg-slate-100 rounded-full w-full mt-6"></div>
+      <div className="h-3 bg-slate-100 rounded-full w-full"></div>
+      <div className="h-3 bg-slate-100 rounded-full w-3/4"></div>
+    </div>
+    {/* Loading indicator */}
+    <div className="flex items-center gap-2 mt-4">
+      <Loader2 className="h-4 w-4 animate-spin text-primary-400" />
+      <span className="text-xs text-slate-400">Đang tải trang {pageNumber}...</span>
+    </div>
+  </div>
+);
+
+// Image with skeleton - show skeleton while loading, then fade in image
+const ImageWithSkeleton: React.FC<{
+  src: string;
+  alt: string;
+  pageNumber: number;
+  priority?: boolean;
+}> = ({ src, alt, pageNumber, priority = false }) => {
+  const [loaded, setLoaded] = useState(false);
+  const [error, setError] = useState(false);
+
+  return (
+    <div className="w-full h-full relative bg-white">
+      {/* Skeleton - show while loading */}
+      {!loaded && !error && (
+        <div className="absolute inset-0 z-10">
+          <PageSkeleton pageNumber={pageNumber} />
+        </div>
+      )}
+      
+      {/* Actual image */}
+      <img
+        src={src}
+        alt={alt}
+        className={`w-full h-full object-cover transition-opacity duration-300 ${loaded ? 'opacity-100' : 'opacity-0'}`}
+        loading={priority ? "eager" : "lazy"}
+        fetchPriority={priority ? "high" : "low"}
+        onLoad={() => setLoaded(true)}
+        onError={() => setError(true)}
+      />
+      
+      {/* Error state */}
+      {error && (
+        <div className="absolute inset-0 flex items-center justify-center bg-slate-50">
+          <div className="text-slate-400 text-sm">Không tải được trang {pageNumber}</div>
+        </div>
+      )}
+    </div>
+  );
+};
 
 export const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ file, pageImageUrls, onClose }) => {
   const [numPages, setNumPages] = useState<number>(0);
@@ -56,6 +117,9 @@ export const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ file, pageImageU
   const [scale, setScale] = useState(1.0);
   const [loadedPages, setLoadedPages] = useState<Set<number>>(new Set());
   const [isLoading, setIsLoading] = useState(true);
+  
+  // Image preloader hook for 4-tier loading strategy
+  const { preloadForViewer } = useImagePreloader();
   
   // Check if we have pre-rendered images
   const hasPrerenderedImages = pageImageUrls && pageImageUrls.length > 0 && pageImageUrls.some(url => url);
@@ -100,8 +164,21 @@ export const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ file, pageImageU
         };
         img.src = firstUrl;
       }
+      
+      // 4-TIER LOADING: Trigger preload when viewer opens
+      // Desktop: 2 trang, Mobile: 1 trang
+      const initPages = window.innerWidth >= 1024 ? 2 : 1;
+      preloadForViewer(pageImageUrls, 1, initPages);
     }
-  }, [hasPrerenderedImages, pageImageUrls]);
+  }, [hasPrerenderedImages, pageImageUrls, preloadForViewer]);
+  
+  // 4-TIER LOADING: Preload more pages when user flips
+  useEffect(() => {
+    if (hasPrerenderedImages && pageImageUrls && pageNumber > 1) {
+      const initPages = viewMode === 'double' ? 2 : 1;
+      preloadForViewer(pageImageUrls, pageNumber, initPages);
+    }
+  }, [pageNumber, viewMode, hasPrerenderedImages, pageImageUrls, preloadForViewer]);
 
   // Single PDF parse - reuse the document from react-pdf (no duplicate parsing!)
   const onDocumentLoadSuccess = useCallback(async (pdf: any) => {
@@ -120,11 +197,19 @@ export const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ file, pageImageU
     }
   }, []);
 
-  // Check if page should be rendered (lazy loading)
+  // Smart lazy loading: Desktop load 2 trang đầu (double view), mobile load 1 trang
+  const initialPages = viewMode === 'double' ? 2 : 1;
+  
   const shouldRenderPage = useCallback((pageIndex: number) => {
-    const current = pageNumber - 1; // 0-based
-    return Math.abs(pageIndex - current) <= RENDER_BUFFER;
-  }, [pageNumber]);
+    const currentIndex = pageNumber - 1; // 0-based
+    
+    // Desktop: load 2 trang đầu, Mobile: load 1 trang đầu
+    if (pageIndex < initialPages) return true;
+    
+    // Load thêm các trang phía trước khi user lật sách
+    const maxLoadedIndex = currentIndex + PRELOAD_AHEAD;
+    return pageIndex <= maxLoadedIndex;
+  }, [pageNumber, initialPages]);
 
   // Track loaded pages for progress
   const onPageLoadSuccess = useCallback((pageIndex: number) => {
@@ -132,8 +217,9 @@ export const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ file, pageImageU
   }, []);
 
   // Calculate load progress
+  const expectedPages = Math.min(numPages, initialPages + PRELOAD_AHEAD);
   const loadProgress = numPages > 0 
-    ? Math.round((loadedPages.size / Math.min(numPages, RENDER_BUFFER * 2 + 1)) * 100)
+    ? Math.round((loadedPages.size / expectedPages) * 100)
     : 0;
 
   // Robust dimension calculation - uses actual PDF ratio (instant with default)
@@ -347,17 +433,15 @@ export const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ file, pageImageU
                >
                  {pageImageUrls!.map((url, index) => (
                     <PageSheet key={index} number={index + 1}>
-                      {url ? (
-                        <img 
-                          src={url} 
+                      {shouldRenderPage(index) && url ? (
+                        <ImageWithSkeleton
+                          src={url}
                           alt={`Trang ${index + 1}`}
-                          className="w-full h-full object-cover bg-white"
-                          loading={index < 4 ? "eager" : "lazy"}
+                          pageNumber={index + 1}
+                          priority={index < initialPages}
                         />
                       ) : (
-                        <div className="w-full h-full flex items-center justify-center bg-slate-50">
-                          <div className="text-slate-300 text-sm">Trang {index + 1}</div>
-                        </div>
+                        <PageSkeleton pageNumber={index + 1} />
                       )}
                     </PageSheet>
                  ))}
