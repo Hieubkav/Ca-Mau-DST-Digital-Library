@@ -81,6 +81,7 @@ export const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ file, pageImageU
     setIsLoading(true);
     setLoadedPages(new Set());
     setScale(1.0);
+    setBaseDim({ width: 0, height: 0 }); // Reset dimensions to force recalculation
   }, [file, pageImageUrls]);
   
   // For pre-rendered images: load first image to get ratio and set numPages immediately
@@ -193,7 +194,7 @@ export const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ file, pageImageU
     calculateLayout();
     window.addEventListener('resize', calculateLayout);
     return () => window.removeEventListener('resize', calculateLayout);
-  }, [pdfRatio]);
+  }, [pdfRatio, file, pageImageUrls]);
 
   const nextFlip = useCallback(() => {
     if (flipBookRef.current) {
@@ -317,7 +318,7 @@ export const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ file, pageImageU
            {hasPrerenderedImages && numPages > 0 && baseDim.width > 0 && (
              <div className="flex justify-center items-center shadow-2xl rounded-sm">
                <HTMLFlipBook
-                  key={`img-${viewMode}-${baseDim.width}`}
+                  key={`img-${viewMode}-${baseDim.width}-${pdfRatio}`}
                   width={finalWidth}
                   height={finalHeight}
                   size="fixed"
@@ -350,15 +351,11 @@ export const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ file, pageImageU
                         <img 
                           src={url} 
                           alt={`Trang ${index + 1}`}
-                          className="w-full h-full object-contain bg-white"
-                          style={{ width: finalWidth, height: finalHeight }}
+                          className="w-full h-full object-cover bg-white"
                           loading={index < 4 ? "eager" : "lazy"}
                         />
                       ) : (
-                        <div 
-                          className="w-full h-full flex items-center justify-center bg-slate-50"
-                          style={{ width: finalWidth, height: finalHeight }}
-                        >
+                        <div className="w-full h-full flex items-center justify-center bg-slate-50">
                           <div className="text-slate-300 text-sm">Trang {index + 1}</div>
                         </div>
                       )}
@@ -384,7 +381,7 @@ export const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ file, pageImageU
             >
                {numPages > 0 && baseDim.width > 0 && (
                  <HTMLFlipBook
-                    key={`pdf-${viewMode}-${baseDim.width}`}
+                    key={`pdf-${viewMode}-${baseDim.width}-${pdfRatio}`}
                     width={finalWidth}
                     height={finalHeight}
                     size="fixed"
@@ -428,10 +425,7 @@ export const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ file, pageImageU
                               className="page-pdf-render"
                             />
                           ) : (
-                            <div 
-                              className="w-full h-full flex items-center justify-center bg-slate-50"
-                              style={{ width: finalWidth, height: finalHeight }}
-                            >
+                            <div className="w-full h-full flex items-center justify-center bg-slate-50">
                               <div className="text-slate-300 text-sm">Trang {index + 1}</div>
                             </div>
                           )}
