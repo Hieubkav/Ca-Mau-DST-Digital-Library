@@ -73,6 +73,16 @@ export const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ file, pageImageU
   // Calculated base dimensions (before zoom)
   const [baseDim, setBaseDim] = useState({ width: 0, height: 0 });
   
+  // Reset state when file changes to avoid dimension inheritance from previous document
+  useEffect(() => {
+    setPdfRatio(DEFAULT_RATIO);
+    setNumPages(0);
+    setPageNumber(1);
+    setIsLoading(true);
+    setLoadedPages(new Set());
+    setScale(1.0);
+  }, [file, pageImageUrls]);
+  
   // For pre-rendered images: load first image to get ratio and set numPages immediately
   useEffect(() => {
     if (hasPrerenderedImages && pageImageUrls) {
