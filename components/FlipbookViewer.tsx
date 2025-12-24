@@ -286,17 +286,28 @@ export const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ file, pageImageU
     return () => window.removeEventListener('resize', calculateLayout);
   }, [pdfRatio, file, pageImageUrls]);
 
-  const nextFlip = useCallback(() => {
-    if (flipBookRef.current) {
-      flipBookRef.current.pageFlip().flipNext();
-    }
+  // react-pageflip blocks programmatic flips when `disableFlipByClick` is true
+  // (it checks for a corner click); on mobile the book is centered so the
+  // internal check fails for `flipPrev()`. We temporarily unblock click flips
+  // just for these button-driven actions.
+  const runFlip = useCallback((direction: 'next' | 'prev') => {
+    const api = flipBookRef.current?.pageFlip?.();
+    if (!api) return;
+
+    // Access underlying settings (not typed in the package)
+    const settings = api.getSettings?.() ?? (api as any).setting;
+    const wasDisabled = settings?.disableFlipByClick;
+    if (settings) settings.disableFlipByClick = false;
+
+    if (direction === 'next') api.flipNext();
+    else api.flipPrev();
+
+    if (settings) settings.disableFlipByClick = wasDisabled;
   }, []);
 
-  const prevFlip = useCallback(() => {
-    if (flipBookRef.current) {
-      flipBookRef.current.pageFlip().flipPrev();
-    }
-  }, []);
+  const nextFlip = useCallback(() => runFlip('next'), [runFlip]);
+
+  const prevFlip = useCallback(() => runFlip('prev'), [runFlip]);
 
   const onFlip = useCallback((e: any) => {
     setPageNumber(e.data + 1);
@@ -452,10 +463,34 @@ export const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ file, pageImageU
            </div>
            
            <div className="flex items-center gap-1">
-             <Button variant="outline" size="sm" onClick={prevFlip} disabled={pageNumber <= 1} className="h-8 px-2">
+             <Button 
+               variant="outline" 
+               size="sm" 
+               onClick={prevFlip} 
+               onTouchEnd={(e) => {
+                 if (pageNumber > 1) {
+                   e.preventDefault();
+                   prevFlip();
+                 }
+               }}
+               disabled={pageNumber <= 1} 
+               className="h-8 px-2 touch-manipulation"
+             >
               <ChevronLeft className="h-4 w-4" />
             </Button>
-            <Button variant="primary" size="sm" onClick={nextFlip} disabled={pageNumber >= numPages} className="h-8 px-2 shadow-primary-200">
+            <Button 
+              variant="primary" 
+              size="sm" 
+              onClick={nextFlip} 
+              onTouchEnd={(e) => {
+                if (pageNumber < numPages) {
+                  e.preventDefault();
+                  nextFlip();
+                }
+              }}
+              disabled={pageNumber >= numPages} 
+              className="h-8 px-2 shadow-primary-200 touch-manipulation"
+            >
               <ChevronRight className="h-4 w-4" />
             </Button>
            </div>
@@ -629,3 +664,4 @@ export const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ file, pageImageU
     </div>
   );
 };
+
