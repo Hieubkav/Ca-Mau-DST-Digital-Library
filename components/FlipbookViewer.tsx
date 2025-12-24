@@ -303,39 +303,58 @@ export const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ file, pageImageU
     playFlipSound();
   }, [playFlipSound]);
 
-  // Double-tap/click to toggle zoom (works on both desktop and mobile)
-  const lastTapRef = useRef<number>(0);
-  const isTouchRef = useRef<boolean>(false);
+  // Double-tap/click to toggle zoom
+  // Use capture phase on mobile to intercept BEFORE flipbook processes touch events
+  const lastTapTimeRef = useRef<number>(0);
+  const lastTapPosRef = useRef<{ x: number; y: number } | null>(null);
+  const isTouchDeviceRef = useRef<boolean>(false);
   
-  const handleTouchEnd = useCallback(() => {
-    isTouchRef.current = true; // Mark as touch device
-    const now = Date.now();
-    const DOUBLE_TAP_DELAY = 300;
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
     
-    if (now - lastTapRef.current < DOUBLE_TAP_DELAY) {
-      setScale(s => s === 1.0 ? 1.4 : 1.0);
-      lastTapRef.current = 0;
-    } else {
-      lastTapRef.current = now;
-    }
+    const DOUBLE_TAP_DELAY = 300;
+    const TAP_MOVE_THRESHOLD = 30; // pixels - if moved more than this, it's a swipe not tap
+    
+    const handleTouchStart = (e: TouchEvent) => {
+      isTouchDeviceRef.current = true;
+      const touch = e.touches[0];
+      const now = Date.now();
+      const pos = { x: touch.clientX, y: touch.clientY };
+      
+      // Check if this is second tap of double-tap
+      if (lastTapPosRef.current && now - lastTapTimeRef.current < DOUBLE_TAP_DELAY) {
+        const dx = Math.abs(pos.x - lastTapPosRef.current.x);
+        const dy = Math.abs(pos.y - lastTapPosRef.current.y);
+        
+        // If tapped near the same spot, it's a double-tap
+        if (dx < TAP_MOVE_THRESHOLD && dy < TAP_MOVE_THRESHOLD) {
+          e.preventDefault();
+          e.stopPropagation();
+          setScale(s => s === 1.0 ? 1.4 : 1.0);
+          lastTapTimeRef.current = 0;
+          lastTapPosRef.current = null;
+          return;
+        }
+      }
+      
+      // Record this tap
+      lastTapTimeRef.current = now;
+      lastTapPosRef.current = pos;
+    };
+    
+    // Use capture phase to intercept before flipbook
+    container.addEventListener('touchstart', handleTouchStart, { capture: true, passive: false });
+    
+    return () => {
+      container.removeEventListener('touchstart', handleTouchStart, { capture: true });
+    };
   }, []);
   
-  const handleClick = useCallback(() => {
-    // Skip if this click was triggered by touch (avoid double-firing)
-    if (isTouchRef.current) {
-      isTouchRef.current = false;
-      return;
-    }
-    
-    const now = Date.now();
-    const DOUBLE_TAP_DELAY = 300;
-    
-    if (now - lastTapRef.current < DOUBLE_TAP_DELAY) {
-      setScale(s => s === 1.0 ? 1.4 : 1.0);
-      lastTapRef.current = 0;
-    } else {
-      lastTapRef.current = now;
-    }
+  // Desktop double-click (simpler - no conflict with flipbook)
+  const handleDoubleClick = useCallback(() => {
+    if (isTouchDeviceRef.current) return; // Skip on touch devices
+    setScale(s => s === 1.0 ? 1.4 : 1.0);
   }, []);
 
   // Mouse wheel to flip pages (desktop only) - attached via useEffect for passive: false
@@ -447,8 +466,7 @@ export const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ file, pageImageU
       <div 
         className="flex-1 relative w-full overflow-hidden flex items-center justify-center bg-slate-200/50"
         ref={containerRef}
-        onClick={handleClick}
-        onTouchEnd={handleTouchEnd}
+        onDoubleClick={handleDoubleClick}
       >
         {/* Background Pattern */}
         <div className="absolute inset-0 bg-[radial-gradient(#94a3b8_1px,transparent_1px)] [background-size:24px_24px] opacity-20 pointer-events-none"></div>
