@@ -12,11 +12,13 @@ import { useImagePreloader } from './hooks/useImagePreloader';
 interface SidebarProps {
   isOpen: boolean;
   onSelectDocument: (doc: DocumentItem) => void;
+  autoSelectFirst?: boolean;
 }
 
-export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onSelectDocument }) => {
+export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onSelectDocument, autoSelectFirst = true }) => {
   const [expandedCats, setExpandedCats] = useState<string[]>([]);
   const { preloadFirstPages, preload } = useImagePreloader();
+  const hasAutoSelected = React.useRef(false);
   
   // Fetch only active documents (realtime)
   const documents = useQuery(api.documents.listActiveDocuments);
@@ -28,6 +30,22 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onSelectDocument }) =>
       preloadFirstPages(documents);
     }
   }, [documents, preloadFirstPages]);
+
+  // Auto-select first document on initial load
+  useEffect(() => {
+    if (autoSelectFirst && documents && documents.length > 0 && !hasAutoSelected.current) {
+      hasAutoSelected.current = true;
+      const firstDoc = documents[0];
+      onSelectDocument({
+        id: firstDoc._id,
+        title: firstDoc.title,
+        category: firstDoc.category,
+        date: firstDoc.date,
+        url: firstDoc.url || "",
+        pageImageUrls: firstDoc.pageImageUrls,
+      });
+    }
+  }, [documents, autoSelectFirst, onSelectDocument]);
 
   // Group documents by category
   const categories = useMemo(() => {

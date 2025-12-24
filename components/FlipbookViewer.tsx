@@ -97,7 +97,7 @@ const ImageWithSkeleton: React.FC<{
         alt={alt}
         className={`w-full h-full object-cover transition-opacity duration-300 ${loaded ? 'opacity-100' : 'opacity-0'}`}
         loading={priority ? "eager" : "lazy"}
-        fetchPriority={priority ? "high" : "low"}
+        fetchpriority={priority ? "high" : "low"}
         onLoad={() => setLoaded(true)}
         onError={() => setError(true)}
       />
@@ -303,9 +303,75 @@ export const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ file, pageImageU
     playFlipSound();
   }, [playFlipSound]);
 
-  // Actual dimensions passed to components (base * zoom)
-  const finalWidth = baseDim.width * scale;
-  const finalHeight = baseDim.height * scale;
+  // Double-tap/click to toggle zoom (works on both desktop and mobile)
+  const lastTapRef = useRef<number>(0);
+  const isTouchRef = useRef<boolean>(false);
+  
+  const handleTouchEnd = useCallback(() => {
+    isTouchRef.current = true; // Mark as touch device
+    const now = Date.now();
+    const DOUBLE_TAP_DELAY = 300;
+    
+    if (now - lastTapRef.current < DOUBLE_TAP_DELAY) {
+      setScale(s => s === 1.0 ? 1.4 : 1.0);
+      lastTapRef.current = 0;
+    } else {
+      lastTapRef.current = now;
+    }
+  }, []);
+  
+  const handleClick = useCallback(() => {
+    // Skip if this click was triggered by touch (avoid double-firing)
+    if (isTouchRef.current) {
+      isTouchRef.current = false;
+      return;
+    }
+    
+    const now = Date.now();
+    const DOUBLE_TAP_DELAY = 300;
+    
+    if (now - lastTapRef.current < DOUBLE_TAP_DELAY) {
+      setScale(s => s === 1.0 ? 1.4 : 1.0);
+      lastTapRef.current = 0;
+    } else {
+      lastTapRef.current = now;
+    }
+  }, []);
+
+  // Mouse wheel to flip pages (desktop only) - attached via useEffect for passive: false
+  const lastWheelRef = useRef<number>(0);
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    
+    const handleWheel = (e: WheelEvent) => {
+      // Only on desktop
+      if (window.innerWidth < 1024) return;
+      
+      // Prevent default scroll
+      e.preventDefault();
+      
+      // Debounce: ignore rapid scrolls
+      const now = Date.now();
+      if (now - lastWheelRef.current < 300) return;
+      lastWheelRef.current = now;
+      
+      if (e.deltaY > 0) {
+        // Scroll down = next page
+        flipBookRef.current?.pageFlip().flipNext();
+      } else if (e.deltaY < 0) {
+        // Scroll up = previous page
+        flipBookRef.current?.pageFlip().flipPrev();
+      }
+    };
+    
+    container.addEventListener('wheel', handleWheel, { passive: false });
+    return () => container.removeEventListener('wheel', handleWheel);
+  }, []);
+
+  // FlipBook always uses base dimensions - zoom is handled via CSS transform
+  const finalWidth = baseDim.width;
+  const finalHeight = baseDim.height;
 
   return (
     <div className="flex flex-col h-full w-full bg-slate-100/50">
@@ -381,6 +447,8 @@ export const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ file, pageImageU
       <div 
         className="flex-1 relative w-full overflow-hidden flex items-center justify-center bg-slate-200/50"
         ref={containerRef}
+        onClick={handleClick}
+        onTouchEnd={handleTouchEnd}
       >
         {/* Background Pattern */}
         <div className="absolute inset-0 bg-[radial-gradient(#94a3b8_1px,transparent_1px)] [background-size:24px_24px] opacity-20 pointer-events-none"></div>
@@ -407,7 +475,13 @@ export const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ file, pageImageU
            
            {/* MODE 1: Pre-rendered images (FAST) */}
            {hasPrerenderedImages && numPages > 0 && baseDim.width > 0 && (
-             <div className="flex justify-center items-center shadow-2xl rounded-sm">
+             <div 
+               className="flex justify-center items-center shadow-2xl rounded-sm transition-transform duration-200 ease-out"
+               style={{ 
+                 transform: `scale(${scale})`,
+                 transformOrigin: 'center center'
+               }}
+             >
                <HTMLFlipBook
                   key={`img-${viewMode}-${baseDim.width}-${pdfRatio}`}
                   width={finalWidth}
@@ -430,11 +504,11 @@ export const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ file, pageImageU
                   usePortrait={viewMode === 'single'}
                   startZIndex={0}
                   autoSize={false}
-                  clickEventForward={true}
+                  clickEventForward={false}
                   useMouseEvents={true}
                   swipeDistance={30}
                   showPageCorners={true}
-                  disableFlipByClick={false}
+                  disableFlipByClick={true}
                >
                  {pageImageUrls!.map((url, index) => (
                     <PageSheet key={index} number={index + 1}>
@@ -456,6 +530,13 @@ export const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ file, pageImageU
            
            {/* MODE 2: PDF rendering (fallback for old documents or local files) */}
            {!hasPrerenderedImages && (
+             <div 
+               className="transition-transform duration-200 ease-out"
+               style={{ 
+                 transform: `scale(${scale})`,
+                 transformOrigin: 'center center'
+               }}
+             >
              <Document
               file={file}
               onLoadSuccess={onDocumentLoadSuccess}
@@ -491,11 +572,11 @@ export const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ file, pageImageU
                     usePortrait={viewMode === 'single'}
                     startZIndex={0}
                     autoSize={false}
-                    clickEventForward={true}
+                    clickEventForward={false}
                     useMouseEvents={true}
                     swipeDistance={30}
                     showPageCorners={true}
-                    disableFlipByClick={false}
+                    disableFlipByClick={true}
                  >
                    {Array.from(new Array(numPages), (el, index) => (
                       <PageSheet key={index} number={index + 1}>
@@ -523,6 +604,7 @@ export const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ file, pageImageU
                  </HTMLFlipBook>
                )}
             </Document>
+             </div>
            )}
         </div>
       </div>
